@@ -1,0 +1,5 @@
+# Dependencies imported by the pinned WildToolBench environment and checker.
+overrides==7.7.0
+jieba==0.42.1
+rouge==1.0.1
+tqdm==4.67.3

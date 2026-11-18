@@ -1,0 +1,3 @@
+dataset,condition,agent,sequences,seeds,AP,FWT,BWT,FGT
+bigcodebench,positive,synthetic,1,1,0.51724138,0.50000000,0.00000000,0.50000000
+wildtoolbench,positive,synthetic,1,1,0.48913043,0.25000000,0.12500000,0.12500000

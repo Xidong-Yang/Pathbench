@@ -1,0 +1,9 @@
+# Attribution and data provenance
+
+PATH-Bench code, newly authored documentation, path manifests and transfer tables are distributed under the Apache License 2.0 in this repository.
+
+**BigCodeBench.** Terry Yue Zhuo and the BigCodeBench contributors released the source tasks under Apache License 2.0. PATH-Bench selects 120 tasks from v0.1.4. For `BigCodeBench/656`, the released `code_prompt` removes the call that downloads the NLTK VADER lexicon, matching the main experiment. The benchmark tests and remaining task fields match the pinned upstream records. The original license is included in `tasks/bigcodebench/LICENSE`. [Dataset and citation](https://huggingface.co/datasets/bigcode/bigcodebench) · [Pinned data snapshot](https://huggingface.co/datasets/bigcode/bigcodebench/tree/b74c0d0bf70d2c0bc459be537895cca163007f1a/data)
+
+**WildToolBench.** Peijie Yu and the WildToolBench contributors provide the source scenarios and tool environment. This distribution includes the selected IDs, the PATH-Bench paths and transfer matrices, and a script to retrieve the original scenarios. The upstream snapshot is pinned to `69647d60b990b169267598573d91fdc00ba69bfb`. The 120 reconstructed scenarios match the inputs used in the main experiment. Generated task text and the upstream checkout stay local. Consult the upstream project for terms applicable to its materials. [Pinned repository](https://github.com/yupeijei1997/WildToolBench/tree/69647d60b990b169267598573d91fdc00ba69bfb) · [WildToolBench paper](https://openreview.net/forum?id=yz7fL5vfpn)
+
+When reporting experiments, cite *PATH-Bench: Path-Dependent Evaluation of Lifelong Agents* and the source benchmark(s) used. Record the PATH-Bench revision and report the dataset, history condition, model, agent and evaluation seeds.
