@@ -7,28 +7,65 @@ import json
 import random
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 import domains
 from protocol import DATASETS, FIELDS, ROOT, SEEDS, atomic_text, load_paths
 
 
-def evaluate(path, seed, agent, tasks, args, writer):
-    random.seed(seed)
-    memory = {}
+def evaluate(path, agent, tasks, args, writer, run_context):
     for step, tid in enumerate(path["task_ids"], 1):
+        context = {**run_context, "step": step, "task_id": tid,
+                   "is_probe": tid == path["probe_id"]}
         transcript = []
+        requests = []
+
         def respond(messages, tools):
-            reply = agent.respond(copy.deepcopy(messages), copy.deepcopy(tools), copy.deepcopy(memory), seed)
+            exchange = {"messages": copy.deepcopy(messages), "tools": copy.deepcopy(tools)}
+            requests.append((messages, len(messages)))
+            reply = agent.respond(copy.deepcopy(messages), copy.deepcopy(tools), copy.deepcopy(context))
             if not isinstance(reply, dict) or not ("content" in reply or "tool_calls" in reply):
                 raise ValueError("respond() must return a chat completion message")
-            transcript.append({"messages": copy.deepcopy(messages), "response": copy.deepcopy(reply)})
-            return reply
+            exchange["response"] = copy.deepcopy(reply)
+            transcript.append(exchange)
+            return copy.deepcopy(reply)
+
         solve = getattr(domains, path["dataset"])
         score = solve(tasks[tid], respond, args)
-        if tid != path["probe_id"] and hasattr(agent, "learn"):
-            memory = agent.learn(memory, {"task_id": tid, "transcript": transcript, "score": score}, seed)
+        # Capture simulator messages added after each reply, including the final tool result.
+        for index, (messages, start) in enumerate(requests):
+            end = len(messages)
+            if index + 1 < len(requests) and requests[index + 1][0] is messages:
+                end = requests[index + 1][1]
+            transcript[index]["environment_messages"] = copy.deepcopy(messages[start:end])
+        if not context["is_probe"] and callable(getattr(agent, "observe", None)):
+            agent.observe({**context, "transcript": transcript, "score": score})
         writer.writerow([path["dataset"], path["condition"], path["sequence_id"], args.name,
-                         seed, step, tid, score])
+                         run_context["seed"], step, tid, score])
+
+
+def run_path(path, seed, spec, tasks, args, writer):
+    random.seed(seed)
+    context = {"run_id": uuid4().hex, "dataset": path["dataset"],
+               "condition": path["condition"], "sequence_id": path["sequence_id"], "seed": seed}
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    if not callable(getattr(module, "create_agent", None)):
+        raise ValueError("Agent module must expose create_agent(context). See README for the agent interface.")
+    agent = module.create_agent(dict(context))
+    try:
+        if not callable(getattr(agent, "respond", None)):
+            raise ValueError("create_agent(context) must return an object with respond(messages, tools, context)")
+        for name in ("observe", "close"):
+            method = getattr(agent, name, None)
+            if method is not None and not callable(method):
+                raise ValueError(f"Agent {name} must be callable when provided")
+        evaluate(path, agent, tasks, args, writer, context)
+    finally:
+        close = getattr(agent, "close", None)
+        if callable(close):
+            close()
 
 
 def main():
@@ -37,7 +74,7 @@ def main():
     parser.add_argument("--condition", required=True, help="Condition label in the selected path manifest")
     parser.add_argument("--sequence", type=int, nargs="+", help="Sequence IDs, defaults to all in the condition")
     parser.add_argument("--seeds", type=int, nargs="+", default=SEEDS)
-    parser.add_argument("--agent", type=Path, required=True, help="Python module exposing respond and optional learn")
+    parser.add_argument("--agent", type=Path, required=True, help="Python module exposing create_agent(context)")
     parser.add_argument("--name", required=True, help="Agent identifier used in score files")
     parser.add_argument("--output", type=Path, required=True, help="Destination .csv")
     parser.add_argument("--paths", type=Path, help="Custom path manifest")
@@ -78,11 +115,7 @@ def main():
         writer.writerow(FIELDS)
         for n in numbers:
             for seed in args.seeds:
-                # A new module instance and external memory for every independent run.
-                agent = importlib.util.module_from_spec(spec)
-                sys.modules[spec.name] = agent
-                spec.loader.exec_module(agent)
-                evaluate(selected[n], seed, agent, tasks, args, writer)
+                run_path(selected[n], seed, spec, tasks, args, writer)
 
 
 if __name__ == "__main__":

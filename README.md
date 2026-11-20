@@ -59,6 +59,7 @@ Pathbench/
 │   ├── protocol.py                  Read path and score files, validate probe positions
 │   ├── score.py                     Aggregate step scores into AP, FWT, BWT and FGT
 │   ├── verify.py                    Check release hashes, task IDs, votes and paper paths
+│   ├── test_run.py                  Check agent lifecycle, batch learning and probe behavior
 │   ├── requirements-wtb.txt         Dependencies for the WildToolBench evaluator
 │   └── examples/
 │       ├── chat_agent.py            Adapter for a Chat Completions compatible endpoint
@@ -137,7 +138,75 @@ Run the commands below from the repository root with Python 3.10 or later.
 
 ### Connect your agent
 
-**For a Chat Completions compatible endpoint**, set the three variables used by the included chat adapter. The adapter appends `/chat/completions` to the base URL and sends temperature zero and the run seed. Adjust the request fields if your provider uses different controls. [Chat adapter](evaluation/examples/chat_agent.py)
+PATH-Bench runs tasks in path order and scores the answers. Your agent owns its memory, experience buffer and learning schedule. Put an adapter in a Python file and pass its path to `--agent`.
+
+| Interface | When the runner calls it | Your adapter's responsibility |
+| --- | --- | --- |
+| `create_agent(context)` | Once at the start of each path and seed | Return a fresh agent object with its initial state. |
+| `agent.respond(messages, tools, context)` | Whenever the environment needs an answer, including during probes | Return an assistant message dictionary with `content` and/or `tool_calls`. |
+| `agent.observe(episode)` · optional | Once after a complete ordinary task, including warm-up | Receive the experience and decide whether to store it or learn from it. |
+| `agent.close()` · optional | At the end of the run, including when task execution fails | Release connections and stop background workers belonging to this run. |
+
+The runner calls these methods synchronously and waits for each call to finish before continuing.
+
+The factory's `context` contains `run_id`, `dataset`, `condition`, `sequence_id` and `seed`. Each run gets a unique `run_id`, which you can use for an isolated external memory store. Every `respond` call also receives `step` (counted from 1), `task_id` and `is_probe`. Use `(run_id, step)` to identify one task occurrence, including when a task appears again later in the path. All calls within that occurrence share the same context values.
+
+`messages` contains the current conversation. `tools` is `None` for BigCodeBench and the available tool schemas for WildToolBench. Return Python code in `content` for a coding task. For a tool action, use Chat Completions `tool_calls`, with function arguments encoded as a JSON string. Convert any SDK response object to an assistant message dictionary in your adapter.
+
+**An episode covers one complete task.** A BigCodeBench episode usually has one request and one answer. A WildToolBench episode includes all model calls across the scenario's dialogue turns. The runner scores the task before calling `observe`.
+
+| Episode field | Content |
+| --- | --- |
+| `task_id`, `step` | The completed task and its position in the path |
+| `run_id`, `dataset`, `condition`, `sequence_id`, `seed`, `is_probe` | The task's context. Episodes delivered to `observe` have `is_probe=False`. |
+| `transcript` | An ordered list of model calls. Each entry has `messages`, `tools`, `response` and `environment_messages`. |
+| `score` | The score for this execution, between 0 and 1 |
+
+Each transcript entry stores the messages and tools supplied to `respond`, followed by its returned response. `environment_messages` records messages the simulator appended after that response, up to the next call in that conversation or its end. It can include the simulator's copy of the assistant reply and tool results, including a final tool result. For BigCodeBench this list is empty. These are snapshots, so the adapter can keep episodes in its own experience buffer.
+
+**Your agent chooses when to learn.** `observe` can store an episode, trigger learning immediately, or wait for more experience. Its return value is ignored. For example, an agent can collect five ordinary episodes, learn once, then start its next batch. Any remaining episodes at the end follow the agent's own policy.
+
+```text
+Create agent → Probe → Task A → Probe → Task B → … → Final probe → Close agent
+                          ↓                 ↓
+                     observe(A)        observe(B)
+                   Store or learn    Store or learn
+```
+
+**Probes measure the current learned state.** When `context["is_probe"]` is true, the adapter must use that state for answering and keep persistent memory, experience buffers and model parameters unchanged by the probe. Task-local conversation state can evolve across the probe's turns and should be discarded when that task ends. The runner records the probe score and skips `observe` for that task. The adapter enforces this measurement mode inside its own agent and external services. For background learners, hold a consistent learned state for the entire probe and resume updates for subsequent ordinary tasks.
+
+Below is a template for wrapping an existing agent. Replace `YourAgent` and its methods with your project's API. Here, `read_only` must implement the probe behavior just described, and `ready_to_learn()` belongs to your agent's own learning policy.
+
+```python
+from my_project import YourAgent
+
+
+class Adapter:
+    def __init__(self, context):
+        self.agent = YourAgent(seed=context["seed"], run_id=context["run_id"])
+
+    def respond(self, messages, tools, context):
+        return self.agent.chat(
+            messages=messages,
+            tools=tools,
+            episode_id=(context["run_id"], context["step"]),
+            read_only=context["is_probe"],
+        )
+
+    def observe(self, episode):
+        self.agent.add_experience(episode)
+        if self.agent.ready_to_learn():
+            self.agent.learn()
+
+    def close(self):
+        self.agent.close()
+
+
+def create_agent(context):
+    return Adapter(context)
+```
+
+**To try the included adapters**, configure a Chat Completions compatible endpoint. The chat adapter answers tasks using the endpoint. The memory adapter stores the first exchange from the most recent fully successful ordinary task in its own object and uses it as an example on subsequent calls. Its memory changes in `observe`. [Chat adapter](evaluation/examples/chat_agent.py) · [Memory adapter](evaluation/examples/memory_agent.py)
 
 ```sh
 export PATHBENCH_BASE_URL='https://your-provider.example/v1'
@@ -145,25 +214,14 @@ export PATHBENCH_MODEL='your-model-id'
 export PATHBENCH_API_KEY='your-api-key'
 ```
 
-**For an existing agent**, put its adapter in a Python file and pass that file to `--agent`. Implement `respond` to answer tasks. Add `learn` if your agent updates memory from experience.
+The chat adapter appends `/chat/completions` to the base URL and sends temperature zero and the run seed. Adjust those request fields for your provider as needed.
 
-| Function | When it runs | What to return |
-| --- | --- | --- |
-| `respond(messages, tools, memory, seed)` | On each model call, including probes. `messages` is the current conversation. `tools` is an available-tool list for WildToolBench or `None` for BigCodeBench. | An assistant message dictionary. Return Python code in `content` for a coding task. For a tool action, return Chat Completions `tool_calls` with function arguments encoded as a JSON string. |
-| `learn(memory, episode, seed)` *(optional)* | Once after each intervening task, including warm-up. The episode contains `task_id`, `score` and a `transcript` of messages and responses. | The memory to use on the next task. |
+<details>
+<summary><strong>Updating an adapter written for the previous interface</strong></summary>
 
-For example, if your agent already exposes a chat method, a thin adapter can delegate to it. Substitute your own import and method in this template. If the method returns an SDK response object, extract its assistant message and convert it to a dictionary.
+Move initialization into `create_agent(context)` and keep memory on the returned agent object. Change `respond(messages, tools, memory, seed)` to the object's `respond(messages, tools, context)`. Move your `learn(memory, episode, seed)` logic into `observe(episode)`, updating your agent's state directly. Read the seed from the run context. Implement the probe behavior using `context["is_probe"]`.
 
-```python
-from my_project import agent
-
-def respond(messages, tools, memory, seed):
-    return agent.chat(messages=messages, tools=tools, memory=memory, seed=seed)
-```
-
-**Adding memory?** Each path and seed starts with `memory = {}`. The runner gives `respond` a copy. Only the return value of `learn` carries changes into the next task. A probe can read accumulated memory and is scored without invoking `learn`. If your agent uses an external store, give each run its own store and write to it from `learn`.
-
-The included memory adapter saves the first exchange from the most recent fully successful intervening task and uses it as a worked example on subsequent calls. To try it, set `AGENT=evaluation/examples/memory_agent.py` below. [Memory adapter](evaluation/examples/memory_agent.py)
+</details>
 
 ### Run an evaluation
 
