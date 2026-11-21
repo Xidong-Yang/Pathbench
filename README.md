@@ -229,26 +229,40 @@ Connect your agent's experience management through the native BCB or WTB hooks. 
 └── agent-options.json
 ```
 
-If your agent accepts `memory_dir` and `batch_size`, its constructor could look like the excerpt below. Add the native methods listed later in this section using your agent's implementation.
+The example below uses configuration fields from **CLIN**, which we evaluated on both BCB and WTB. Expose your benchmark-specific CLIN implementation as `CLINAgent` in `my_agent.py`. This constructor excerpt shows the relevant settings. Include the native methods listed below and the dependencies required by your implementation.
 
 ```python
-# my_agent.py — constructor excerpt
-class MyAgent:
-    def __init__(self, memory_dir, batch_size=5):
-        self.memory_dir = memory_dir
-        self.batch_size = batch_size
+# my_agent.py — CLIN constructor excerpt
+class CLINAgent:
+    def __init__(self, summarize_model, base_url,
+                 max_history=5, summarize_temperature=0.0):
+        self.summarize_model = summarize_model
+        self.base_url = base_url
+        self.max_history = max_history
+        self.summarize_temperature = summarize_temperature
 ```
 
-**Set constructor values in the JSON file.** For the example above, `agent-options.json` could contain the following object. Choose the memory directory for the current experiment.
+**Set constructor values in the JSON file.** For this CLIN example, save the following as `agent-options.json` and replace the endpoint with your service's URL.
 
 ```json
 {
-  "memory_dir": "/absolute/path/to/run-memory",
-  "batch_size": 5
+  "summarize_model": "deepseek-v4-flash",
+  "base_url": "https://your-provider.example/v1",
+  "max_history": 3,
+  "summarize_temperature": 0.0
 }
 ```
 
-The JSON keys must match the arguments accepted by your class's `__init__`. In this example, `memory_dir` and `batch_size` are settings defined by your agent. You can use any constructor settings your own implementation supports. Passing this file is equivalent to constructing the agent with `MyAgent(memory_dir="/absolute/path/to/run-memory", batch_size=5)`. You can omit the configuration flag when the constructor works with no arguments.
+| CLIN setting | What it controls |
+| --- | --- |
+| `summarize_model` | The model that summarizes task experience into learnings |
+| `base_url` | The API endpoint for that summarization model |
+| `max_history` | How many recent history entries CLIN considers when producing a new summary |
+| `summarize_temperature` | The temperature used for summarization requests |
+
+The benchmark command's `--model` selects the model that answers tasks. CLIN's `summarize_model` selects the model that summarizes experience. They can use the same model and endpoint. The CLIN implementations read the API key from `OPENAI_API_KEY`, configured in step 1.
+
+The runner passes the JSON fields to the constructor as keyword arguments. Match those fields to the agent you are using. For example, SimpleRAG exposes `embedding_model_name`, `embedding_base_url` and `retrieval_top_k` for embedding-based retrieval. You can omit the configuration flag when your constructor works with no arguments.
 
 **Make the Python file importable.** Add the directory containing `my_agent.py` to `PYTHONPATH` so that Python can find it from the benchmark checkout.
 
@@ -257,7 +271,7 @@ export PATHBENCH_AGENT_DIR='/absolute/path/to/my-agent'
 export PYTHONPATH="$PATHBENCH_AGENT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 ```
 
-`my_agent:MyAgent` means “import the module `my_agent` and instantiate its class `MyAgent`.” For an installed package, the same syntax can be `my_package.bcb_agent:MyAgent` or `my_package.wtb_agent:MyAgent`.
+`my_agent:CLINAgent` means “import the module `my_agent` and instantiate its class `CLINAgent`.” For another agent or an installed package, replace this with your own `package.module:Class` name.
 
 **Implement the native methods in your agent class.** The benchmark calls these methods automatically. It fills in `task_id`, `task`, `sample` and `eval_result` from the current run. Your methods receive and use these values.
 
@@ -276,7 +290,7 @@ Your native agent may call its own model, memory or learning services from these
 
 ### 5. Run your agent and score its answers
 
-Run the block for your benchmark. These commands load the `MyAgent` class and JSON configuration from step 4, and use the path exported in step 3. BCB uses underscores in its agent flags, and WTB uses hyphens. Choose a fresh output directory when repeating an experiment.
+Run the block for your benchmark. These commands load the `CLINAgent` class and JSON configuration from step 4, and use the path exported in step 3. BCB uses underscores in its agent flags, and WTB uses hyphens. Choose a fresh output directory when repeating an experiment.
 
 **BigCodeBench** generates an answer and runs the native tests after each task. Its per-task results are saved in `runs/bcb-agent/samples_per_task_eval.jsonl`.
 
@@ -285,7 +299,7 @@ cd "$PATHBENCH_ROOT/.deps/BigCodeBench"
 python -m bigcodebench.generate \
   --tasks_file "$PATHBENCH_ROOT/runs/bcb-input/tasks.jsonl" \
   --model "$MODEL" --seed 42 --root "$PATHBENCH_ROOT/runs/bcb-agent" \
-  --agent_type my_agent:MyAgent \
+  --agent_type my_agent:CLINAgent \
   --agent_config "$PATHBENCH_AGENT_DIR/agent-options.json"
 ```
 
@@ -297,7 +311,7 @@ python -m wtb.openfunctions_evaluation \
   --run-ids "$PATHBENCH_ROOT/runs/wtb-input/run_ids.json" \
   --tasks-file "$PATHBENCH_ROOT/tasks/wildtoolbench/tasks.jsonl" \
   --model "$MODEL" --seed 42 --result-dir "$PATHBENCH_ROOT/runs/wtb-agent" \
-  --agent-type my_agent:MyAgent \
+  --agent-type my_agent:CLINAgent \
   --agent-config "$PATHBENCH_AGENT_DIR/agent-options.json"
 python -m wtb.eval_runner \
   --sequence-results "$PATHBENCH_ROOT/runs/wtb-agent/Wild-Tool-Bench_result.jsonl" \
