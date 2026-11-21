@@ -1,6 +1,16 @@
 <h1 align="center">PATH-Bench</h1>
 <p align="center"><strong>Path-Dependent Evaluation of Lifelong Agents</strong></p>
 <p align="center">
+  <a href="https://arxiv.org/abs/2608.01149"><img src="https://img.shields.io/badge/arXiv-2608.01149-B31B1B?style=flat-square" alt="Paper on arXiv: 2608.01149"></a>
+  <a href="paths"><img src="https://img.shields.io/badge/Published_paths-200-315CE8?style=flat-square" alt="200 published paths"></a>
+  <a href="transfer"><img src="https://img.shields.io/badge/Transfer_matrices-120_%C3%97_120-397A50?style=flat-square" alt="120 by 120 transfer matrices"></a>
+</p>
+<p align="center">
+  <a href="https://arxiv.org/abs/2608.01149"><strong>Read the paper</strong></a> ·
+  <a href="https://arxiv.org/pdf/2608.01149">PDF</a> ·
+  <a href="#citation">Cite PATH-Bench</a>
+</p>
+<p align="center">
   <a href="#repository-map">Repository map</a> ·
   <a href="#read-a-transfer-matrix">Transfer matrices</a> ·
   <a href="#sample-paths">Path sampling</a> ·
@@ -11,7 +21,9 @@
 
 Use the **200 fixed paths** to compare agents on the task orders from the paper. Use the **transfer matrices** to design a different experiment. Each dataset has 50 positive-dominant and 50 negative-dominant paths.
 
-![PATH-Bench paper overview showing task selection, directed transfer estimates, paths built around a recurring probe, and agent evaluation](docs/assets/pathbench-overview.png)
+[![PATH-Bench paper overview showing task selection, directed transfer estimates, paths built around a recurring probe, and agent evaluation](docs/assets/pathbench-overview.png)](docs/assets/pathbench-overview.png)
+
+<p align="center"><sub>Task pool → Transfer estimation → Path sampling → Agent evaluation · Click the figure to enlarge.</sub></p>
 
 | Dataset | What the agent does | Paper paths | Transfer data |
 | --- | --- | --- | --- |
@@ -92,7 +104,8 @@ Each cell stores the change in the target's average score when a source-task exa
 
 `vote.csv` combines the three models' gain signs by majority vote. Its labels are `1` for positive transfer, `0` for neutral, `-1` for negative transfer and `2` for a three-way disagreement.
 
-Align matrix rows and columns with tasks by **task ID**. The matrix order differs from `ids.json`. The CSVs retain diagonal values (source and target are the same task); the sampler skips these entries when selecting tasks for a probe's history.
+> [!IMPORTANT]
+> Align matrix rows and columns with tasks by **task ID**. The matrix order differs from `ids.json`. The CSVs retain diagonal values (source and target are the same task); the sampler skips these entries when selecting tasks for a probe's history.
 
 ## Sample paths
 
@@ -112,7 +125,10 @@ python transfer/sample.py --dataset bigcodebench --condition negative --count 3 
 
 ### Design a path for your own question
 
-**The paper's sampler is one example. You can write your own sampling code for any path property you want to test.** For example, to test whether order matters, draw one set of positive and negative tasks for a probe. Put the negative tasks first on one path and last on another. To test the strength of transfer, use the gain values in a model CSV to choose stronger or weaker examples. You can also vary the spacing of probe checks or how often a particular task repeats.
+> [!TIP]
+> **The paper's sampler is one example.** You can write your own sampling code for any path property you want to test.
+
+For example, to test whether order matters, draw one set of positive and negative tasks for a probe. Put the negative tasks first on one path and last on another. To test the strength of transfer, use the gain values in a model CSV to choose stronger or weaker examples. You can also vary the spacing of probe checks or how often a particular task repeats.
 
 To export and score a custom path with the bundled tools, write **one JSON object per line**. Choose a `condition` label for your experiment and a unique `sequence_id` within that dataset and condition. List every task occurrence in `task_ids`, using IDs from that dataset's pool. Record all positions of `probe_id` in `probe_steps`, counting from 1. The metrics use at least three probe checks, including the first and last steps of the path. Set `warmup_steps` to the positions strictly between the first two checks.
 
@@ -125,6 +141,15 @@ For a five-step recovery test, use probe 7, introduce task 845, check the probe,
 ## Evaluate your agent
 
 Follow these six steps for either BigCodeBench or WildToolBench. Use the same benchmark throughout. The walkthrough runs your agent on one short example path with seed 42, then calculates its path metrics.
+
+| Step | Action | What you have afterward |
+| :---: | --- | --- |
+| **1** | [Configure the model connection](#1-configure-the-model-connection) | Model name, endpoint and API key set in your shell |
+| **2** | [Prepare the benchmark environment](#2-prepare-the-benchmark-environment) | A native BCB or WTB checkout with sequence support |
+| **3** | [Export a path](#3-export-a-path) | Ordered benchmark inputs and a path manifest |
+| **4** | [Connect your agent](#4-connect-your-agent) | An importable agent class and its JSON configuration |
+| **5** | [Run and score answers](#5-run-your-agent-and-score-its-answers) | Native evaluation results for every task occurrence |
+| **6** | [Calculate path metrics](#6-convert-results-and-calculate-path-metrics) | AP, FWT, BWT and FGT |
 
 ### 1. Configure the model connection
 
@@ -363,3 +388,19 @@ Within each path, **A1** is the cold probe score and **A2** is the score after w
 | **FGT** · Forgetting | How far did later probes fall below the warm score? | Mean of max(0, A2 − Ai) |
 
 Scores are fractions. Multiply by 100 to report AP as a percentage and the other metrics in percentage points. Lower FGT means less forgetting.
+
+## Citation
+
+If you use PATH-Bench, please cite [our paper](https://arxiv.org/abs/2608.01149) and the source benchmark(s) used in your experiments. See [NOTICE.md](NOTICE.md) for dataset attribution.
+
+```bibtex
+@misc{yang2026pathbench,
+  title         = {{PATH-Bench}: Path-Dependent Evaluation of Lifelong Agents},
+  author        = {Xidong Yang and Xingyi Zhang and Wenhao Li and Wenyan Liu and Junjie Sheng and Yun Hua and Wei Yin and Tao Fang and Chuyun Shen and Xiangfeng Wang},
+  year          = {2026},
+  eprint        = {2608.01149},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI},
+  url           = {https://arxiv.org/abs/2608.01149}
+}
+```
