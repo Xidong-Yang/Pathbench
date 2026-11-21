@@ -1,0 +1,43 @@
+{
+  "bigcodebench": {
+    "repository": "https://github.com/bigcode-project/bigcodebench",
+    "revision": "09dd993f46c3fbf3a799465bb96d524edcb0b199",
+    "entries": [
+      {
+        "path": "bigcodebench/generate.py",
+        "module": "bigcodebench.pathbench_sequence",
+        "flag": "--tasks_file",
+        "function": "main",
+        "wrap_main": true,
+        "sha256": "12325ca6da7a6469bc76084b0030762065036b66ffa69c2e6211c03bd6075203"
+      }
+    ],
+    "files": {
+      "sequence.py": "bigcodebench/pathbench_sequence.py",
+      "eval_single_task.py": "bigcodebench/eval_single_task.py"
+    }
+  },
+  "wildtoolbench": {
+    "repository": "https://github.com/yupeijei1997/WildToolBench",
+    "revision": "69647d60b990b169267598573d91fdc00ba69bfb",
+    "entries": [
+      {
+        "path": "wild-tool-bench/wtb/openfunctions_evaluation.py",
+        "module": "wtb.pathbench_sequence",
+        "flag": "--run-ids",
+        "function": "main",
+        "sha256": "51be95fc8455da361c51eb25b53ae994220fbef44c783d9ae5668b4ffc4f4b96"
+      },
+      {
+        "path": "wild-tool-bench/wtb/eval_runner.py",
+        "module": "wtb.pathbench_sequence",
+        "flag": "--sequence-results",
+        "function": "score_main",
+        "sha256": "0c331c8a91277250fe40322a54d60316fd2f6dd46f278b96e6b9636e97908cca"
+      }
+    ],
+    "files": {
+      "sequence.py": "wild-tool-bench/wtb/pathbench_sequence.py"
+    }
+  }
+}

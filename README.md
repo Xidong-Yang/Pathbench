@@ -53,20 +53,24 @@ Pathbench/
 ```text
 Pathbench/
 ├── evaluation/
-│   ├── run.py                       Run an agent on paths and write per-step scores
-│   ├── domains.py                   Present tasks to the agent and score its responses
-│   ├── bcb_worker.py                Execute BigCodeBench tests in the evaluator
+│   ├── export.py                    Export a path as native BCB tasks or WTB run IDs
+│   ├── convert.py                   Convert native evaluation files to step scores
 │   ├── protocol.py                  Read path and score files, validate probe positions
 │   ├── score.py                     Aggregate step scores into AP, FWT, BWT and FGT
 │   ├── verify.py                    Check release hashes, task IDs, votes and paper paths
-│   ├── test_run.py                  Check agent lifecycle, batch learning and probe behavior
-│   ├── requirements-wtb.txt         Dependencies for the WildToolBench evaluator
+│   ├── test_native.py               Check occurrence mapping and native result conversion
 │   └── examples/
-│       ├── chat_agent.py            Adapter for a Chat Completions compatible endpoint
-│       ├── memory_agent.py          Adapter that remembers one successful example
-│       ├── paths.jsonl              Two short paths for trying the runner or scorer
+│       ├── paths.jsonl              Two short paths for checking native runs or scoring
 │       ├── scores.csv               Synthetic step scores for those paths
 │       └── expected.csv             Expected summary from scoring the synthetic data
+├── integrations/
+│   ├── install.py                   Add sequence support to pinned upstream checkouts
+│   ├── sources.json                 Upstream revisions and entry-point checksums
+│   ├── bigcodebench/
+│   │   ├── sequence.py              Ordered generation using BCB prompts and agent hooks
+│   │   └── eval_single_task.py      Original per-task BCB evaluation helper
+│   └── wildtoolbench/
+│       └── sequence.py              Ordered scenarios, native subtask hooks and scoring
 ├── docs/assets/pathbench-overview.png   Paper overview shown above
 ├── README.md                        Guide to the release and agent evaluation
 ├── NOTICE.md                        Data sources, pinned revisions and citations
@@ -124,7 +128,7 @@ python transfer/sample.py --dataset bigcodebench --condition negative --count 3 
 
 **The paper's sampler is one example. You can write your own sampling code for any path property you want to test.** For example, to test whether order matters, draw one set of positive and negative tasks for a probe. Put the negative tasks first on one path and last on another. To test the strength of transfer, use the gain values in a model CSV to choose stronger or weaker examples. You can also vary the spacing of probe checks or how often a particular task repeats.
 
-To use a custom path with the bundled runner and scorer, write **one JSON object per line**. Choose a `condition` label for your experiment and a unique `sequence_id` within that dataset and condition. List every task occurrence in `task_ids`, using IDs from that dataset's pool. Record all positions of `probe_id` in `probe_steps`, counting from 1. The metrics use at least three probe checks, including the first and last steps of the path. Set `warmup_steps` to the positions strictly between the first two checks.
+To export and score a custom path with the bundled tools, write **one JSON object per line**. Choose a `condition` label for your experiment and a unique `sequence_id` within that dataset and condition. List every task occurrence in `task_ids`, using IDs from that dataset's pool. Record all positions of `probe_id` in `probe_steps`, counting from 1. The metrics use at least three probe checks, including the first and last steps of the path. Set `warmup_steps` to the positions strictly between the first two checks.
 
 For a five-step recovery test, use probe 7, introduce task 845, check the probe, introduce task 209, then check it again. This lets you measure what happens after interference and after a potentially helpful task. To run the example below, create the `runs/` directory and save this line as `runs/recovery.jsonl`.
 
@@ -134,164 +138,136 @@ For a five-step recovery test, use probe 7, introduce task 845, check the probe,
 
 ## Evaluate your agent
 
-Run the commands below from the repository root with Python 3.10 or later.
-
-### Connect your agent
-
-PATH-Bench runs tasks in path order and scores the answers. Your agent owns its memory, experience buffer and learning schedule. Put an adapter in a Python file and pass its path to `--agent`.
-
-| Interface | When the runner calls it | Your adapter's responsibility |
-| --- | --- | --- |
-| `create_agent(context)` | Once at the start of each path and seed | Return a fresh agent object with its initial state. |
-| `agent.respond(messages, tools, context)` | Whenever the environment needs an answer, including during probes | Return an assistant message dictionary with `content` and/or `tool_calls`. |
-| `agent.observe(episode)` · optional | Once after a complete ordinary task, including warm-up | Receive the experience and decide whether to store it or learn from it. |
-| `agent.close()` · optional | At the end of the run, including when task execution fails | Release connections and stop background workers belonging to this run. |
-
-The runner calls these methods synchronously and waits for each call to finish before continuing.
-
-The factory's `context` contains `run_id`, `dataset`, `condition`, `sequence_id` and `seed`. Each run gets a unique `run_id`, which you can use for an isolated external memory store. Every `respond` call also receives `step` (counted from 1), `task_id` and `is_probe`. Use `(run_id, step)` to identify one task occurrence, including when a task appears again later in the path. All calls within that occurrence share the same context values.
-
-`messages` contains the current conversation. `tools` is `None` for BigCodeBench and the available tool schemas for WildToolBench. Return Python code in `content` for a coding task. For a tool action, use Chat Completions `tool_calls`, with function arguments encoded as a JSON string. Convert any SDK response object to an assistant message dictionary in your adapter.
-
-**An episode covers one complete task.** A BigCodeBench episode usually has one request and one answer. A WildToolBench episode includes all model calls across the scenario's dialogue turns. The runner scores the task before calling `observe`.
-
-| Episode field | Content |
-| --- | --- |
-| `task_id`, `step` | The completed task and its position in the path |
-| `run_id`, `dataset`, `condition`, `sequence_id`, `seed`, `is_probe` | The task's context. Episodes delivered to `observe` have `is_probe=False`. |
-| `transcript` | An ordered list of model calls. Each entry has `messages`, `tools`, `response` and `environment_messages`. |
-| `score` | The score for this execution, between 0 and 1 |
-
-Each transcript entry stores the messages and tools supplied to `respond`, followed by its returned response. `environment_messages` records messages the simulator appended after that response, up to the next call in that conversation or its end. It can include the simulator's copy of the assistant reply and tool results, including a final tool result. For BigCodeBench this list is empty. These are snapshots, so the adapter can keep episodes in its own experience buffer.
-
-**Your agent chooses when to learn.** `observe` can store an episode, trigger learning immediately, or wait for more experience. Its return value is ignored. For example, an agent can collect five ordinary episodes, learn once, then start its next batch. Any remaining episodes at the end follow the agent's own policy.
+Run your agent through the **BigCodeBench or WildToolBench entry point**, using the same generation and evaluation flow as the original experiments. PATH-Bench supplies the ordered tasks and calculates the path metrics from the native evaluation results.
 
 ```text
-Create agent → Probe → Task A → Probe → Task B → … → Final probe → Close agent
-                          ↓                 ↓
-                     observe(A)        observe(B)
-                   Store or learn    Store or learn
+Choose or sample a path → Export native input → Run BCB / WTB → Convert native scores → Compute path metrics
 ```
 
-**Probes measure the current learned state.** When `context["is_probe"]` is true, the adapter must use that state for answering and keep persistent memory, experience buffers and model parameters unchanged by the probe. Task-local conversation state can evolve across the probe's turns and should be discarded when that task ends. The runner records the probe score and skips `observe` for that task. The adapter enforces this measurement mode inside its own agent and external services. For background learners, hold a consistent learned state for the entire probe and resume updates for subsequent ordinary tasks.
+The bundled extensions add ordered execution and a distinct record for every task occurrence. BigCodeBench labels repeated tasks with `_1`, `_2`, and so on. WildToolBench records a zero-based `sequence_index` and a `sequence_run_id`. These identifiers let the scorer find every appearance of the probe.
 
-Below is a template for wrapping an existing agent. Replace `YourAgent` and its methods with your project's API. Here, `read_only` must implement the probe behavior just described, and `ready_to_learn()` belongs to your agent's own learning policy.
+If your existing experiment checkout already supports `--tasks_file` for BCB or `--run-ids` for WTB, feed it the exported inputs using its existing agent options. The setup below provides those sequence extensions for clean upstream checkouts.
 
-```python
-from my_project import YourAgent
+### Prepare a native benchmark checkout
 
-
-class Adapter:
-    def __init__(self, context):
-        self.agent = YourAgent(seed=context["seed"], run_id=context["run_id"])
-
-    def respond(self, messages, tools, context):
-        return self.agent.chat(
-            messages=messages,
-            tools=tools,
-            episode_id=(context["run_id"], context["step"]),
-            read_only=context["is_probe"],
-        )
-
-    def observe(self, episode):
-        self.agent.add_experience(episode)
-        if self.agent.ready_to_learn():
-            self.agent.learn()
-
-    def close(self):
-        self.agent.close()
-
-
-def create_agent(context):
-    return Adapter(context)
-```
-
-**To try the included adapters**, configure a Chat Completions compatible endpoint. The chat adapter answers tasks using the endpoint. The memory adapter stores the first exchange from the most recent fully successful ordinary task in its own object and uses it as an example on subsequent calls. Its memory changes in `observe`. [Chat adapter](evaluation/examples/chat_agent.py) · [Memory adapter](evaluation/examples/memory_agent.py)
+Use Python 3.10 or later. From the PATH-Bench root, set its absolute location for the commands below.
 
 ```sh
-export PATHBENCH_BASE_URL='https://your-provider.example/v1'
-export PATHBENCH_MODEL='your-model-id'
-export PATHBENCH_API_KEY='your-api-key'
+export PATHBENCH_ROOT="$PWD"
+export OPENAI_API_KEY='your-api-key'
+export OPENAI_BASE_URL='https://your-provider.example/v1'
+export MODEL='your-model-id'
 ```
 
-The chat adapter appends `/chat/completions` to the base URL and sends temperature zero and the run seed. Adjust those request fields for your provider as needed.
-
-<details>
-<summary><strong>Updating an adapter written for the previous interface</strong></summary>
-
-Move initialization into `create_agent(context)` and keep memory on the returned agent object. Change `respond(messages, tools, memory, seed)` to the object's `respond(messages, tools, context)`. Move your `learn(memory, episode, seed)` logic into `observe(episode)`, updating your agent's state directly. Read the seed from the run context. Implement the probe behavior using `context["is_probe"]`.
-
-</details>
-
-### Run an evaluation
-
-Set `AGENT` to your Python adapter, or use the included endpoint adapter as shown here.
-
-```sh
-AGENT=evaluation/examples/chat_agent.py
-```
-
-Prepare the evaluator for your dataset below. Each example runs one short path with one seed and writes a CSV with one score per step. Pass the same path file to the runner and scorer.
+The included sequence extensions use a Chat Completions compatible API and the benchmarks' native prompts, simulator and checkers. Install the upstream runtime dependencies for your selected benchmark. The installer checks the pinned entry-point files before adding sequence support and saves the originals beside them as `.pathbench-original`. [Pinned sources](integrations/sources.json)
 
 <details open>
-<summary><strong>BigCodeBench · run the coding example</strong></summary>
-
-The task inputs and tests are bundled. Install Docker and pull the pinned evaluator image once (about 9.3 GB compressed). It runs generated code in a network-disabled container. If you already have an isolated BigCodeBench evaluator with its sanitizer and task dependencies installed, you can use its interpreter via `--bcb-python`.
+<summary><strong>BigCodeBench</strong></summary>
 
 ```sh
-docker pull bigcodebench/bigcodebench-evaluate@sha256:a3cd34ec3840a49d6b7afb240f4bdd47c350bc5991043fd0a91773830f7cd405
-python evaluation/run.py --dataset bigcodebench --condition positive --sequence 1 --seeds 42 \
-  --paths evaluation/examples/paths.jsonl --agent "$AGENT" --name my-agent --output runs/bcb-example.csv
-python evaluation/score.py runs/bcb-example.csv --paths evaluation/examples/paths.jsonl
+git clone https://github.com/bigcode-project/bigcodebench.git .deps/BigCodeBench
+git -C .deps/BigCodeBench checkout --detach 09dd993f46c3fbf3a799465bb96d524edcb0b199
+python integrations/install.py bigcodebench --repo .deps/BigCodeBench
+python -m pip install -e .deps/BigCodeBench
+```
+
+Follow the upstream instructions to install the generation dependencies and prepare an isolated Python environment containing BigCodeBench and its task dependencies for code execution. The per-task helper runs `python -m bigcodebench.evaluate --execution local` with the exact task record being tested. Set `BIGCODEBENCH_EVAL_PYTHON` to that evaluator's Python executable. [BigCodeBench installation](https://github.com/bigcode-project/bigcodebench/tree/09dd993f46c3fbf3a799465bb96d524edcb0b199)
+
+```sh
+export BIGCODEBENCH_EVAL_PYTHON='/absolute/path/to/evaluator/bin/python'
+```
+
+Export one short example path, then generate and evaluate each task in sequence.
+
+```sh
+python evaluation/export.py --dataset bigcodebench --condition positive --sequence 1 \
+  --paths evaluation/examples/paths.jsonl --output runs/bcb-input
+
+cd "$PATHBENCH_ROOT/.deps/BigCodeBench"
+python -m bigcodebench.generate --tasks_file "$PATHBENCH_ROOT/runs/bcb-input/tasks.jsonl" \
+  --model "$MODEL" --seed 42 --root "$PATHBENCH_ROOT/runs/bcb-native"
+
+cd "$PATHBENCH_ROOT"
+python evaluation/convert.py runs/bcb-native/samples_per_task_eval.jsonl \
+  --paths runs/bcb-input/path.jsonl --agent my-agent --seed 42 --output runs/bcb-scores.csv
+python evaluation/score.py runs/bcb-scores.csv --paths runs/bcb-input/path.jsonl
 ```
 
 </details>
 
 <details>
-<summary><strong>WildToolBench · run the tool-use example</strong></summary>
-
-Fetch the pinned simulator, install its dependencies and reconstruct the task pool. Each scenario earns the fraction of turns with correct tool names and arguments.
+<summary><strong>WildToolBench</strong></summary>
 
 ```sh
 git clone https://github.com/yupeijei1997/WildToolBench.git .deps/WildToolBench
 git -C .deps/WildToolBench checkout --detach 69647d60b990b169267598573d91fdc00ba69bfb
-python -m pip install -r evaluation/requirements-wtb.txt
+python integrations/install.py wildtoolbench --repo .deps/WildToolBench
+python -m pip install -r .deps/WildToolBench/requirements.txt
 python tasks/wildtoolbench/prepare.py --source .deps/WildToolBench/wild-tool-bench/data/Wild-Tool-Bench.jsonl
-
-python evaluation/run.py --dataset wildtoolbench --condition positive --sequence 3 --seeds 42 \
-  --paths evaluation/examples/paths.jsonl --agent "$AGENT" --name my-agent --output runs/wtb-example.csv
-python evaluation/score.py runs/wtb-example.csv --paths evaluation/examples/paths.jsonl
 ```
 
-</details>
-
-<details>
-<summary><strong>Run the custom recovery path</strong></summary>
-
-After saving the five-step path from the sampling section as `runs/recovery.jsonl` and preparing the BigCodeBench evaluator, use its `condition` label in the run command.
+Export the ordered scenario IDs, run the native inference entry point, then score its output with the native checker. Each scenario's score is the fraction of subtasks with correct tool names and arguments.
 
 ```sh
-python evaluation/run.py --dataset bigcodebench --condition recovery --paths runs/recovery.jsonl \
-  --seeds 42 --agent "$AGENT" --name my-agent --output runs/recovery-scores.csv
-python evaluation/score.py runs/recovery-scores.csv --paths runs/recovery.jsonl
+python evaluation/export.py --dataset wildtoolbench --condition positive --sequence 3 \
+  --paths evaluation/examples/paths.jsonl --output runs/wtb-input
+
+cd "$PATHBENCH_ROOT/.deps/WildToolBench/wild-tool-bench"
+python -m wtb.openfunctions_evaluation --run-ids "$PATHBENCH_ROOT/runs/wtb-input/run_ids.json" \
+  --tasks-file "$PATHBENCH_ROOT/tasks/wildtoolbench/tasks.jsonl" \
+  --model "$MODEL" --seed 42 --result-dir "$PATHBENCH_ROOT/runs/wtb-native"
+python -m wtb.eval_runner \
+  --sequence-results "$PATHBENCH_ROOT/runs/wtb-native/Wild-Tool-Bench_result.jsonl" \
+  --sequence-scores "$PATHBENCH_ROOT/runs/wtb-native/Wild-Tool-Bench_score.jsonl"
+
+cd "$PATHBENCH_ROOT"
+python evaluation/convert.py runs/wtb-native/Wild-Tool-Bench_score.jsonl \
+  --paths runs/wtb-input/path.jsonl --agent my-agent --seed 42 --output runs/wtb-scores.csv
+python evaluation/score.py runs/wtb-scores.csv --paths runs/wtb-input/path.jsonl
 ```
 
 </details>
 
-<details>
-<summary><strong>Full paper setting · 50 paths × 5 seeds per condition</strong></summary>
+### Use your own agent
 
-Omit `--paths`, `--sequence` and `--seeds` to run all official paths for one dataset and condition. Run `positive` and `negative` separately with distinct output files. BigCodeBench uses sequence IDs 1–50. WildToolBench uses 3, 6, …, 150. The five seeds are 42, 77, 117, 97 and 177.
+The commands above use the configured model endpoint. To add an agent's experience management, use the hooks already present in the original BCB and WTB experiments. Put your native agent class in an importable Python package and pass its `package.module:Class` name to the sequence command.
+
+| Native agent method | BigCodeBench | WildToolBench |
+| --- | --- | --- |
+| `set_target_task_id(task_id)` | Receives the canonical probe ID before the sequence starts | Receives the probe scenario ID before the sequence starts |
+| `prepare_task(task_id, task)` | Called before generating a coding answer. Return a prompt prefix string, or a dictionary with `prefix` and `system_prompt`. | Called before each dialogue subtask. Return a dictionary with `prefix`, `system_prompt` and/or `extra_messages`. |
+| `on_task_complete(task_id, task, sample, eval_result)` | Receives generated code and the native test verdict after each coding task | Receives the subtask trace and the native generation-time feedback after each dialogue subtask |
+| `finalize()` · optional | Called when the sequence run ends | Called when the sequence run ends |
+
+An agent owns its memory and decides when to learn inside these native hooks. For example, `on_task_complete` can add an experience to a buffer and trigger learning when the agent has enough experience. Configure its probe-learning behavior through `set_target_task_id`, as in the original experiment code. The native hooks are invoked for probe occurrences too, so the agent applies its own target-task rule. Record that rule when reporting results.
+
+WildToolBench retains the original **subtask-level** callbacks. Its generation-time feedback reflects the inference handler's action verdict. The later `wtb.eval_runner` pass checks arguments and supplies the final scores used by PATH-Bench. Use the subtask payload's `original_session_id` to identify the underlying scenario and `session_id` to identify this occurrence in the sequence.
+
+Supply your class and an optional JSON file of constructor arguments with the flags below. Use your agent's existing memory path options to give each experiment its own storage.
 
 ```sh
-python evaluation/run.py --dataset bigcodebench --condition positive \
-  --agent "$AGENT" --name my-agent --output runs/bcb-positive.csv
-python evaluation/score.py --official runs/bcb-positive.csv
+# Add to the BigCodeBench generation command
+--agent_type my_package.bcb_agent:MyAgent --agent_config /absolute/path/to/agent-options.json
+
+# Add to the WildToolBench inference command
+--agent-type my_package.wtb_agent:MyAgent --agent-config /absolute/path/to/agent-options.json
 ```
 
-For split runs, pass all CSV files together to the scorer. With `--official`, it checks that each dataset, condition and agent group includes the full set of paths and seeds. Step CSVs contain `dataset, condition, sequence_id, agent, seed, step, task_id, score`.
+The constructor receives the JSON object's fields as keyword arguments. Your native agent may call its own model, memory or learning services from these hooks. The two benchmark environments use their own task prompts, interaction formats and scoring functions.
 
-</details>
+### Run paper paths or your own paths
+
+To use a paper path, omit `--paths` from `evaluation/export.py` and select the dataset, condition and sequence ID. BigCodeBench uses IDs 1–50 per condition, and WildToolBench uses 3, 6, …, 150. Run each exported path separately for seeds 42, 77, 117, 97 and 177, using a fresh native output directory for every run.
+
+To use a custom path, supply its manifest with `--paths`, for example `--paths runs/recovery.jsonl --condition recovery --sequence 1`. The exported `path.jsonl` records the exact path used for conversion and scoring.
+
+Pass converted CSV files together to compute aggregate metrics. For the paper setting, `--official` checks the complete path and seed set for each dataset, condition and agent group.
+
+```sh
+python evaluation/score.py --official runs/paper-scores/*.csv
+```
+
+Native result files must contain every task occurrence exactly once. The converter checks their task IDs and positions against the exported path. It writes `dataset, condition, sequence_id, agent, seed, step, task_id, score` for the metric calculator.
 
 ### Read the scores
 
