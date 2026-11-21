@@ -230,7 +230,78 @@ python evaluation/score.py runs/wtb-scores.csv --paths runs/wtb-input/path.jsonl
 
 ### Use your own agent
 
-The commands above use the configured model endpoint. To add an agent's experience management, use the hooks already present in the original BCB and WTB experiments. Put your native agent class in an importable Python package and pass its `package.module:Class` name to the sequence command.
+The commands above use the configured model endpoint. To add your agent's experience management, connect the native BCB or WTB hooks. You provide the agent implementation and its constructor settings. The benchmark supplies each task, generated response and evaluation feedback when it calls your methods.
+
+| Where you put it | What you configure |
+| --- | --- |
+| `my_agent.py` | Your agent class, its initialization, memory handling and native methods |
+| `agent-options.json` | Values for your agent's constructor arguments |
+| The benchmark command | Which agent class to load and which JSON configuration to read |
+
+**Write your agent class in a Python file.** For example, keep `my_agent.py` and `agent-options.json` in the same directory.
+
+```text
+/absolute/path/to/my-agent/
+├── my_agent.py
+└── agent-options.json
+```
+
+If your agent accepts `memory_dir` and `batch_size`, its constructor could look like the excerpt below. Add the native methods listed later in this section using your agent's implementation.
+
+```python
+# my_agent.py — constructor excerpt
+class MyAgent:
+    def __init__(self, memory_dir, batch_size=5):
+        self.memory_dir = memory_dir
+        self.batch_size = batch_size
+```
+
+**Set constructor values in the JSON file.** For the example above, `agent-options.json` could contain the following object. Choose the memory directory for the current experiment.
+
+```json
+{
+  "memory_dir": "/absolute/path/to/run-memory",
+  "batch_size": 5
+}
+```
+
+The JSON keys must match the arguments accepted by your class's `__init__`. In this example, `memory_dir` and `batch_size` are settings defined by your agent. You can use any constructor settings your own implementation supports. Passing this file is equivalent to constructing the agent with `MyAgent(memory_dir="/absolute/path/to/run-memory", batch_size=5)`. You can omit the configuration flag when the constructor works with no arguments.
+
+**Make the Python file importable and select it in the run command.** Add the directory containing `my_agent.py` to `PYTHONPATH` so that Python can find it from the benchmark checkout.
+
+```sh
+export PATHBENCH_AGENT_DIR='/absolute/path/to/my-agent'
+export PYTHONPATH="$PATHBENCH_AGENT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+```
+
+`my_agent:MyAgent` means “import the module `my_agent` and instantiate its class `MyAgent`.” For an installed package, the same syntax can be `my_package.bcb_agent:MyAgent` or `my_package.wtb_agent:MyAgent`.
+
+After exporting the example path as described above, run the command for your benchmark. BCB uses underscores in its agent flags, and WTB uses hyphens.
+
+```sh
+# BigCodeBench
+cd "$PATHBENCH_ROOT/.deps/BigCodeBench"
+python -m bigcodebench.generate \
+  --tasks_file "$PATHBENCH_ROOT/runs/bcb-input/tasks.jsonl" \
+  --model "$MODEL" --seed 42 --root "$PATHBENCH_ROOT/runs/bcb-agent" \
+  --agent_type my_agent:MyAgent \
+  --agent_config "$PATHBENCH_AGENT_DIR/agent-options.json"
+```
+
+```sh
+# WildToolBench
+cd "$PATHBENCH_ROOT/.deps/WildToolBench/wild-tool-bench"
+python -m wtb.openfunctions_evaluation \
+  --run-ids "$PATHBENCH_ROOT/runs/wtb-input/run_ids.json" \
+  --tasks-file "$PATHBENCH_ROOT/tasks/wildtoolbench/tasks.jsonl" \
+  --model "$MODEL" --seed 42 --result-dir "$PATHBENCH_ROOT/runs/wtb-agent" \
+  --agent-type my_agent:MyAgent \
+  --agent-config "$PATHBENCH_AGENT_DIR/agent-options.json"
+```
+
+Then use the evaluation, conversion and metric commands from the corresponding walkthrough, pointing them at `runs/bcb-agent` or `runs/wtb-agent`.
+
+**Implement the native methods in your agent class.** The benchmark calls these methods automatically. It fills in `task_id`, `task`, `sample` and `eval_result` from the current run. Your methods receive and use these values.
 
 | Native agent method | BigCodeBench | WildToolBench |
 | --- | --- | --- |
@@ -243,17 +314,7 @@ An agent owns its memory and decides when to learn inside these native hooks. Fo
 
 WildToolBench retains the original **subtask-level** callbacks. Its generation-time feedback reflects the inference handler's action verdict. The later `wtb.eval_runner` pass checks arguments and supplies the final scores used by PATH-Bench. Use the subtask payload's `original_session_id` to identify the underlying scenario and `session_id` to identify this occurrence in the sequence.
 
-Supply your class and an optional JSON file of constructor arguments with the flags below. Use your agent's existing memory path options to give each experiment its own storage.
-
-```sh
-# Add to the BigCodeBench generation command
---agent_type my_package.bcb_agent:MyAgent --agent_config /absolute/path/to/agent-options.json
-
-# Add to the WildToolBench inference command
---agent-type my_package.wtb_agent:MyAgent --agent-config /absolute/path/to/agent-options.json
-```
-
-The constructor receives the JSON object's fields as keyword arguments. Your native agent may call its own model, memory or learning services from these hooks. The two benchmark environments use their own task prompts, interaction formats and scoring functions.
+Your native agent may call its own model, memory or learning services from these hooks. The two benchmark environments use their own task prompts, interaction formats and scoring functions.
 
 ### Run paper paths or your own paths
 
