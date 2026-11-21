@@ -2,19 +2,6 @@
 <p align="center"><strong>Path-Dependent Evaluation of Lifelong Agents</strong></p>
 <p align="center">
   <a href="https://arxiv.org/abs/2608.01149"><img src="https://img.shields.io/badge/arXiv-2608.01149-B31B1B?style=flat-square" alt="Paper on arXiv: 2608.01149"></a>
-  <a href="paths"><img src="https://img.shields.io/badge/Published_paths-200-315CE8?style=flat-square" alt="200 published paths"></a>
-  <a href="transfer"><img src="https://img.shields.io/badge/Transfer_matrices-120_%C3%97_120-397A50?style=flat-square" alt="120 by 120 transfer matrices"></a>
-</p>
-<p align="center">
-  <a href="https://arxiv.org/abs/2608.01149"><strong>Read the paper</strong></a> ·
-  <a href="https://arxiv.org/pdf/2608.01149">PDF</a> ·
-  <a href="#citation">Cite PATH-Bench</a>
-</p>
-<p align="center">
-  <a href="#repository-map">Repository map</a> ·
-  <a href="#read-a-transfer-matrix">Transfer matrices</a> ·
-  <a href="#sample-paths">Path sampling</a> ·
-  <a href="#evaluate-your-agent">Agent evaluation</a>
 </p>
 
 **Does solving one task help an agent solve the next one?** PATH-Bench asks an agent to solve the same task several times, with other tasks in between. That recurring task is the **probe**. Its changing score shows how the intervening experience helps or interferes with the agent.
