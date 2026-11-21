@@ -56,7 +56,7 @@ Pathbench/
 │   ├── convert.py                   Convert native evaluation files to step scores
 │   ├── protocol.py                  Read path and score files, validate probe positions
 │   ├── score.py                     Aggregate step scores into AP, FWT, BWT and FGT
-│   ├── verify.py                    Check release hashes, task IDs, votes and paper paths
+│   ├── verify.py                    Check task IDs, votes and paper paths
 │   ├── test_native.py               Check occurrence mapping and native result conversion
 │   └── examples/
 │       ├── paths.jsonl              Two short paths for checking native runs or scoring
@@ -74,7 +74,6 @@ Pathbench/
 ├── README.md                        Guide to the release and agent evaluation
 ├── NOTICE.md                        Data sources, pinned revisions and citations
 ├── LICENSE                          Apache License 2.0 for PATH-Bench components
-├── SHA256SUMS                       Checksums for the release files
 ├── .gitattributes                   Git rules for text and binary files
 └── .gitignore                       Local data, runs and environments excluded from Git
 ```

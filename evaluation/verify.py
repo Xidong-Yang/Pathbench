@@ -1,5 +1,4 @@
-"""Verify release checksums, task relationships, official paths."""
-import hashlib
+"""Verify task relationships, voting matrices and official paths."""
 import json
 import sys
 from collections import Counter
@@ -42,9 +41,6 @@ def verify_paths(paths):
 
 
 if __name__ == "__main__":
-    for line in (ROOT / "SHA256SUMS").read_text().splitlines():
-        digest, name = line.split("  ", 1)
-        require(hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest, f"Checksum mismatch for {name}")
     paths = load_paths()
     verify_paths(paths)
     print("Verified 240 task IDs, 200 published paths and both voting matrices.")
