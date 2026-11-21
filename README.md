@@ -122,19 +122,11 @@ For a five-step recovery test, use probe 7, introduce task 845, check the probe,
 
 ## Evaluate your agent
 
-Run your agent through the **BigCodeBench or WildToolBench entry point**, using the same generation and evaluation flow as the original experiments. PATH-Bench supplies the ordered tasks and calculates the path metrics from the native evaluation results.
+Follow these six steps for either BigCodeBench or WildToolBench. Use the same benchmark throughout. The walkthrough runs your agent on one short example path with seed 42, then calculates its path metrics.
 
-```text
-Choose or sample a path → Export native input → Run BCB / WTB → Convert native scores → Compute path metrics
-```
+### 1. Configure the model connection
 
-The bundled extensions add ordered execution and a distinct record for every task occurrence. BigCodeBench labels repeated tasks with `_1`, `_2`, and so on. WildToolBench records a zero-based `sequence_index` and a `sequence_run_id`. These identifiers let the scorer find every appearance of the probe.
-
-If your existing experiment checkout already supports `--tasks_file` for BCB or `--run-ids` for WTB, feed it the exported inputs using its existing agent options. The setup below provides those sequence extensions for clean upstream checkouts.
-
-### Prepare a native benchmark checkout
-
-Use Python 3.10 or later. From the PATH-Bench root, set its absolute location for the commands below.
+Use Python 3.10 or later. Start in the PATH-Bench repository root and keep the same shell for the commands below. Set the model endpoint used by the native benchmark runtime.
 
 ```sh
 export PATHBENCH_ROOT="$PWD"
@@ -143,38 +135,29 @@ export OPENAI_BASE_URL='https://your-provider.example/v1'
 export MODEL='your-model-id'
 ```
 
-The included sequence extensions use a Chat Completions compatible API and the benchmarks' native prompts, simulator and checkers. Install the upstream runtime dependencies for your selected benchmark. The installer checks the pinned entry-point files before adding sequence support and saves the originals beside them as `.pathbench-original`. [Pinned sources](integrations/sources.json)
+The sequence extensions use a Chat Completions compatible API. Your agent can use its own model or memory services inside its native hooks.
+
+<a id="prepare-a-native-benchmark-checkout"></a>
+
+### 2. Prepare the benchmark environment
+
+Follow the block for your selected benchmark. The installer adds sequence support to the pinned upstream entry points and saves their originals as `.pathbench-original`. [Pinned sources](integrations/sources.json)
 
 <details open>
 <summary><strong>BigCodeBench</strong></summary>
 
 ```sh
+cd "$PATHBENCH_ROOT"
 git clone https://github.com/bigcode-project/bigcodebench.git .deps/BigCodeBench
 git -C .deps/BigCodeBench checkout --detach 09dd993f46c3fbf3a799465bb96d524edcb0b199
 python integrations/install.py bigcodebench --repo .deps/BigCodeBench
 python -m pip install -e .deps/BigCodeBench
 ```
 
-Follow the upstream instructions to install the generation dependencies and prepare an isolated Python environment containing BigCodeBench and its task dependencies for code execution. The per-task helper runs `python -m bigcodebench.evaluate --execution local` with the exact task record being tested. Set `BIGCODEBENCH_EVAL_PYTHON` to that evaluator's Python executable. [BigCodeBench installation](https://github.com/bigcode-project/bigcodebench/tree/09dd993f46c3fbf3a799465bb96d524edcb0b199)
+Prepare an isolated Python environment containing BigCodeBench and its task dependencies for code execution, following the upstream installation instructions. Set `BIGCODEBENCH_EVAL_PYTHON` to that environment's Python executable. The per-task helper uses it to run `python -m bigcodebench.evaluate --execution local` with the exact task record being tested. [BigCodeBench installation](https://github.com/bigcode-project/bigcodebench/tree/09dd993f46c3fbf3a799465bb96d524edcb0b199)
 
 ```sh
 export BIGCODEBENCH_EVAL_PYTHON='/absolute/path/to/evaluator/bin/python'
-```
-
-Export one short example path, then generate and evaluate each task in sequence.
-
-```sh
-python evaluation/export.py --dataset bigcodebench --condition positive --sequence 1 \
-  --paths evaluation/examples/paths.jsonl --output runs/bcb-input
-
-cd "$PATHBENCH_ROOT/.deps/BigCodeBench"
-python -m bigcodebench.generate --tasks_file "$PATHBENCH_ROOT/runs/bcb-input/tasks.jsonl" \
-  --model "$MODEL" --seed 42 --root "$PATHBENCH_ROOT/runs/bcb-native"
-
-cd "$PATHBENCH_ROOT"
-python evaluation/convert.py runs/bcb-native/samples_per_task_eval.jsonl \
-  --paths runs/bcb-input/path.jsonl --agent my-agent --seed 42 --output runs/bcb-scores.csv
-python evaluation/score.py runs/bcb-scores.csv --paths runs/bcb-input/path.jsonl
 ```
 
 </details>
@@ -183,6 +166,7 @@ python evaluation/score.py runs/bcb-scores.csv --paths runs/bcb-input/path.jsonl
 <summary><strong>WildToolBench</strong></summary>
 
 ```sh
+cd "$PATHBENCH_ROOT"
 git clone https://github.com/yupeijei1997/WildToolBench.git .deps/WildToolBench
 git -C .deps/WildToolBench checkout --detach 69647d60b990b169267598573d91fdc00ba69bfb
 python integrations/install.py wildtoolbench --repo .deps/WildToolBench
@@ -190,31 +174,46 @@ python -m pip install -r .deps/WildToolBench/requirements.txt
 python tasks/wildtoolbench/prepare.py --source .deps/WildToolBench/wild-tool-bench/data/Wild-Tool-Bench.jsonl
 ```
 
-Export the ordered scenario IDs, run the native inference entry point, then score its output with the native checker. Each scenario's score is the fraction of subtasks with correct tool names and arguments.
+</details>
+
+If you already use an experiment checkout that supports `--tasks_file` for BCB or `--run-ids` for WTB, it can consume the inputs from step 3. Use that checkout's existing agent options. The commands here use the bundled extensions on clean upstream checkouts.
+
+### 3. Export a path
+
+Run the block for your selected benchmark. BCB receives an ordered task file, and WTB receives an ordered list of scenario IDs. Each export also includes `path.jsonl` for the later conversion and scoring steps.
+
+**BigCodeBench**
 
 ```sh
+cd "$PATHBENCH_ROOT"
+python evaluation/export.py --dataset bigcodebench --condition positive --sequence 1 \
+  --paths evaluation/examples/paths.jsonl --output runs/bcb-input
+```
+
+**WildToolBench**
+
+```sh
+cd "$PATHBENCH_ROOT"
 python evaluation/export.py --dataset wildtoolbench --condition positive --sequence 3 \
   --paths evaluation/examples/paths.jsonl --output runs/wtb-input
-
-cd "$PATHBENCH_ROOT/.deps/WildToolBench/wild-tool-bench"
-python -m wtb.openfunctions_evaluation --run-ids "$PATHBENCH_ROOT/runs/wtb-input/run_ids.json" \
-  --tasks-file "$PATHBENCH_ROOT/tasks/wildtoolbench/tasks.jsonl" \
-  --model "$MODEL" --seed 42 --result-dir "$PATHBENCH_ROOT/runs/wtb-native"
-python -m wtb.eval_runner \
-  --sequence-results "$PATHBENCH_ROOT/runs/wtb-native/Wild-Tool-Bench_result.jsonl" \
-  --sequence-scores "$PATHBENCH_ROOT/runs/wtb-native/Wild-Tool-Bench_score.jsonl"
-
-cd "$PATHBENCH_ROOT"
-python evaluation/convert.py runs/wtb-native/Wild-Tool-Bench_score.jsonl \
-  --paths runs/wtb-input/path.jsonl --agent my-agent --seed 42 --output runs/wtb-scores.csv
-python evaluation/score.py runs/wtb-scores.csv --paths runs/wtb-input/path.jsonl
 ```
+
+<details>
+<summary><strong>Choose a paper path or a custom path</strong></summary>
+
+For a paper path, omit `--paths` and select its dataset, condition and sequence ID. BigCodeBench uses IDs 1–50 per condition. WildToolBench uses 3, 6, …, 150.
+
+For a custom path, pass its manifest, for example `--paths runs/recovery.jsonl --condition recovery --sequence 1`. Continue with the exported files in steps 4–6.
+
+The full paper setting runs each path with seeds 42, 77, 117, 97 and 177. Use a fresh native output directory for each path and seed, and configure the agent's memory storage for that experiment.
 
 </details>
 
-### Use your own agent
+<a id="use-your-agent"></a>
 
-The commands above use the configured model endpoint. To add your agent's experience management, connect the native BCB or WTB hooks. You provide the agent implementation and its constructor settings. The benchmark supplies each task, generated response and evaluation feedback when it calls your methods.
+### 4. Connect your agent
+
+Connect your agent's experience management through the native BCB or WTB hooks. You provide the agent implementation and its constructor settings. The benchmark supplies each task, generated response and evaluation feedback when it calls your methods.
 
 | Where you put it | What you configure |
 | --- | --- |
@@ -251,7 +250,7 @@ class MyAgent:
 
 The JSON keys must match the arguments accepted by your class's `__init__`. In this example, `memory_dir` and `batch_size` are settings defined by your agent. You can use any constructor settings your own implementation supports. Passing this file is equivalent to constructing the agent with `MyAgent(memory_dir="/absolute/path/to/run-memory", batch_size=5)`. You can omit the configuration flag when the constructor works with no arguments.
 
-**Make the Python file importable and select it in the run command.** Add the directory containing `my_agent.py` to `PYTHONPATH` so that Python can find it from the benchmark checkout.
+**Make the Python file importable.** Add the directory containing `my_agent.py` to `PYTHONPATH` so that Python can find it from the benchmark checkout.
 
 ```sh
 export PATHBENCH_AGENT_DIR='/absolute/path/to/my-agent'
@@ -259,31 +258,6 @@ export PYTHONPATH="$PATHBENCH_AGENT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 ```
 
 `my_agent:MyAgent` means “import the module `my_agent` and instantiate its class `MyAgent`.” For an installed package, the same syntax can be `my_package.bcb_agent:MyAgent` or `my_package.wtb_agent:MyAgent`.
-
-After exporting the example path as described above, run the command for your benchmark. BCB uses underscores in its agent flags, and WTB uses hyphens.
-
-```sh
-# BigCodeBench
-cd "$PATHBENCH_ROOT/.deps/BigCodeBench"
-python -m bigcodebench.generate \
-  --tasks_file "$PATHBENCH_ROOT/runs/bcb-input/tasks.jsonl" \
-  --model "$MODEL" --seed 42 --root "$PATHBENCH_ROOT/runs/bcb-agent" \
-  --agent_type my_agent:MyAgent \
-  --agent_config "$PATHBENCH_AGENT_DIR/agent-options.json"
-```
-
-```sh
-# WildToolBench
-cd "$PATHBENCH_ROOT/.deps/WildToolBench/wild-tool-bench"
-python -m wtb.openfunctions_evaluation \
-  --run-ids "$PATHBENCH_ROOT/runs/wtb-input/run_ids.json" \
-  --tasks-file "$PATHBENCH_ROOT/tasks/wildtoolbench/tasks.jsonl" \
-  --model "$MODEL" --seed 42 --result-dir "$PATHBENCH_ROOT/runs/wtb-agent" \
-  --agent-type my_agent:MyAgent \
-  --agent-config "$PATHBENCH_AGENT_DIR/agent-options.json"
-```
-
-Then use the evaluation, conversion and metric commands from the corresponding walkthrough, pointing them at `runs/bcb-agent` or `runs/wtb-agent`.
 
 **Implement the native methods in your agent class.** The benchmark calls these methods automatically. It fills in `task_id`, `task`, `sample` and `eval_result` from the current run. Your methods receive and use these values.
 
@@ -300,21 +274,75 @@ WildToolBench retains the original **subtask-level** callbacks. Its generation-t
 
 Your native agent may call its own model, memory or learning services from these hooks. The two benchmark environments use their own task prompts, interaction formats and scoring functions.
 
-### Run paper paths or your own paths
+### 5. Run your agent and score its answers
 
-To use a paper path, omit `--paths` from `evaluation/export.py` and select the dataset, condition and sequence ID. BigCodeBench uses IDs 1–50 per condition, and WildToolBench uses 3, 6, …, 150. Run each exported path separately for seeds 42, 77, 117, 97 and 177, using a fresh native output directory for every run.
+Run the block for your benchmark. These commands load the `MyAgent` class and JSON configuration from step 4, and use the path exported in step 3. BCB uses underscores in its agent flags, and WTB uses hyphens. Choose a fresh output directory when repeating an experiment.
 
-To use a custom path, supply its manifest with `--paths`, for example `--paths runs/recovery.jsonl --condition recovery --sequence 1`. The exported `path.jsonl` records the exact path used for conversion and scoring.
-
-Pass converted CSV files together to compute aggregate metrics. For the paper setting, `--official` checks the complete path and seed set for each dataset, condition and agent group.
+**BigCodeBench** generates an answer and runs the native tests after each task. Its per-task results are saved in `runs/bcb-agent/samples_per_task_eval.jsonl`.
 
 ```sh
+cd "$PATHBENCH_ROOT/.deps/BigCodeBench"
+python -m bigcodebench.generate \
+  --tasks_file "$PATHBENCH_ROOT/runs/bcb-input/tasks.jsonl" \
+  --model "$MODEL" --seed 42 --root "$PATHBENCH_ROOT/runs/bcb-agent" \
+  --agent_type my_agent:MyAgent \
+  --agent_config "$PATHBENCH_AGENT_DIR/agent-options.json"
+```
+
+**WildToolBench** first runs the scenario interactions, then checks the tool names and arguments with its native evaluator. Its scores are saved in `runs/wtb-agent/Wild-Tool-Bench_score.jsonl`.
+
+```sh
+cd "$PATHBENCH_ROOT/.deps/WildToolBench/wild-tool-bench"
+python -m wtb.openfunctions_evaluation \
+  --run-ids "$PATHBENCH_ROOT/runs/wtb-input/run_ids.json" \
+  --tasks-file "$PATHBENCH_ROOT/tasks/wildtoolbench/tasks.jsonl" \
+  --model "$MODEL" --seed 42 --result-dir "$PATHBENCH_ROOT/runs/wtb-agent" \
+  --agent-type my_agent:MyAgent \
+  --agent-config "$PATHBENCH_AGENT_DIR/agent-options.json"
+python -m wtb.eval_runner \
+  --sequence-results "$PATHBENCH_ROOT/runs/wtb-agent/Wild-Tool-Bench_result.jsonl" \
+  --sequence-scores "$PATHBENCH_ROOT/runs/wtb-agent/Wild-Tool-Bench_score.jsonl"
+```
+
+The sequence extensions preserve every task occurrence. BCB labels repeated tasks with `_1`, `_2`, and so on. WTB records a zero-based `sequence_index` and a `sequence_run_id`.
+
+### 6. Convert results and calculate path metrics
+
+Convert the native scores using the exported `path.jsonl`, then run the metric calculator. In these commands, `--agent my-agent` is a name for reporting results. Set `--seed` to the seed used in step 5.
+
+**BigCodeBench**
+
+```sh
+cd "$PATHBENCH_ROOT"
+python evaluation/convert.py runs/bcb-agent/samples_per_task_eval.jsonl \
+  --paths runs/bcb-input/path.jsonl --agent my-agent --seed 42 --output runs/bcb-scores.csv
+python evaluation/score.py runs/bcb-scores.csv --paths runs/bcb-input/path.jsonl
+```
+
+**WildToolBench**
+
+```sh
+cd "$PATHBENCH_ROOT"
+python evaluation/convert.py runs/wtb-agent/Wild-Tool-Bench_score.jsonl \
+  --paths runs/wtb-input/path.jsonl --agent my-agent --seed 42 --output runs/wtb-scores.csv
+python evaluation/score.py runs/wtb-scores.csv --paths runs/wtb-input/path.jsonl
+```
+
+The converter checks that every task occurrence has exactly one result matching the exported path. It writes `dataset, condition, sequence_id, agent, seed, step, task_id, score` to the CSV. The scorer prints AP, FWT, BWT and FGT.
+
+<details>
+<summary><strong>Aggregate the full paper setting</strong></summary>
+
+After running and converting all paper paths and seeds, collect their CSV files in `runs/paper-scores/` and pass them together to the scorer. `--official` checks the full path and seed set for each dataset, condition and agent group.
+
+```sh
+cd "$PATHBENCH_ROOT"
 python evaluation/score.py --official runs/paper-scores/*.csv
 ```
 
-Native result files must contain every task occurrence exactly once. The converter checks their task IDs and positions against the exported path. It writes `dataset, condition, sequence_id, agent, seed, step, task_id, score` for the metric calculator.
+For custom paths, pass the converted CSV files together with their manifests using `--paths`.
 
-### Read the scores
+</details>
 
 Within each path, **A1** is the cold probe score and **A2** is the score after warm-up. For transfer and forgetting, the scorer averages each probe appearance across seeds first, computes the quantities below over appearances **i ≥ 3**, then gives each path equal weight.
 
