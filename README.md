@@ -234,33 +234,26 @@ The example below uses configuration fields from **CLIN**, which we evaluated on
 ```python
 # my_agent.py — CLIN constructor excerpt
 class CLINAgent:
-    def __init__(self, summarize_model, base_url,
-                 max_history=5, summarize_temperature=0.0):
+    def __init__(self, summarize_model, max_history=5):
         self.summarize_model = summarize_model
-        self.base_url = base_url
         self.max_history = max_history
-        self.summarize_temperature = summarize_temperature
 ```
 
-**Set constructor values in the JSON file.** For this CLIN example, save the following as `agent-options.json` and replace the endpoint with your service's URL.
+**Set constructor values in the JSON file.** For this CLIN example, save the following as `agent-options.json`.
 
 ```json
 {
   "summarize_model": "deepseek-v4-flash",
-  "base_url": "https://your-provider.example/v1",
-  "max_history": 3,
-  "summarize_temperature": 0.0
+  "max_history": 3
 }
 ```
 
 | CLIN setting | What it controls |
 | --- | --- |
 | `summarize_model` | The model that summarizes task experience into learnings |
-| `base_url` | The API endpoint for that summarization model |
 | `max_history` | How many recent history entries CLIN considers when producing a new summary |
-| `summarize_temperature` | The temperature used for summarization requests |
 
-The benchmark command's `--model` selects the model that answers tasks. CLIN's `summarize_model` selects the model that summarizes experience. They can use the same model and endpoint. The CLIN implementations read the API key from `OPENAI_API_KEY`, configured in step 1.
+The benchmark command's `--model` selects the model that answers tasks. CLIN's `summarize_model` selects the model that summarizes experience. They can use the same model. The CLIN implementations read the API key from `OPENAI_API_KEY`, configured in step 1.
 
 The runner passes the JSON fields to the constructor as keyword arguments. Match those fields to the agent you are using. For example, SimpleRAG exposes `embedding_model_name`, `embedding_base_url` and `retrieval_top_k` for embedding-based retrieval. You can omit the configuration flag when your constructor works with no arguments.
 
