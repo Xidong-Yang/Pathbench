@@ -92,6 +92,8 @@ Each cell stores the change in the target's average score when a source-task exa
 
 `vote.csv` combines the three models' gain signs by majority vote. Its labels are `1` for positive transfer, `0` for neutral, `-1` for negative transfer and `2` for a three-way disagreement.
 
+Align matrix rows and columns with tasks by **task ID**. The matrix order differs from `ids.json`. The CSVs retain diagonal values (source and target are the same task); the sampler skips these entries when selecting tasks for a probe's history.
+
 ## Sample paths
 
 For a comparison on the paper's exact paths, read the files in `paths/`. To generate new paths with the paper's design, use the example sampler. Its default settings work as follows. [Sampler source](transfer/sample.py)
