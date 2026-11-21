@@ -86,27 +86,11 @@ Run `python evaluation/verify.py` to check the release. The BigCodeBench subset 
 
 ## Read a transfer matrix
 
-Each dataset has **three gain matrices and one voting matrix**, each with 120 source tasks (rows) and 120 target tasks (columns). The first CSV field, `source_task`, names the row. To find tasks that might help or interfere with a particular probe, **find the probe in the header and read down its column**. [BigCodeBench matrices](transfer/bigcodebench) · [WildToolBench matrices](transfer/wildtoolbench)
+Each dataset includes **120 × 120 directed transfer matrices** for DeepSeek-V4-Flash, GLM-5 and gpt-5.4-mini. Rows represent source tasks and columns represent target tasks. [BigCodeBench matrices](transfer/bigcodebench) · [WildToolBench matrices](transfer/wildtoolbench)
 
-In a model CSV, a cell measures transfer with the model weights held fixed. Row A, column B answers “How did the model’s average score on B change when it saw a worked example of A first?”
+Each cell stores the change in the target's average score when a source-task example is provided, compared with no example. Positive values indicate improvement, negative values indicate interference, and zero indicates no change.
 
-**Gain(A → B) = average score on B with an example of A − average score on B with no example.**
-
-A positive gain means the model did better, zero means its average score stayed the same, and a negative gain means it did worse. A gain of `+0.20` is a rise of 20 percentage points. BigCodeBench scores each attempt as pass or fail. WildToolBench scores the fraction of turns with correct tool names and arguments.
-
-In `vote.csv`, each model casts one vote using the **sign** of its gain. Two or three matching signs give the label `1` (positive), `0` (neutral) or `-1` (negative). When one model votes positive, one neutral and one negative, the label is `2` (mixed). Use the model CSVs when the **size** of the gain matters.
-
-Here are three entries from the BigCodeBench CSVs.
-
-| Source task (row) | Target probe (column) | DeepSeek-V4-Flash gain | GLM-5 gain | gpt-5.4-mini gain | Vote |
-| --- | --- | ---: | ---: | ---: | --- |
-| `BigCodeBench/845` | `BigCodeBench/7` | −0.2 | −0.2 | −0.2 | −1 · negative |
-| `BigCodeBench/7` | `BigCodeBench/845` | −0.4 | +0.6 | +0.2 | +1 · positive |
-| `BigCodeBench/209` | `BigCodeBench/7` | +0.8 | +0.6 | 0.0 | +1 · positive |
-
-The first two rows show why order matters. Showing task 845 before probe 7 lowered scores for all three models. In the reverse direction, two models improved. If you keep probe 7 fixed, tasks 845 and 209 give you two different histories to try.
-
-To rebuild the vote from the three gain matrices, run `python transfer/vote.py transfer/bigcodebench runs/bcb-vote.csv`.
+`vote.csv` combines the three models' gain signs by majority vote. Its labels are `1` for positive transfer, `0` for neutral, `-1` for negative transfer and `2` for a three-way disagreement.
 
 ## Sample paths
 
